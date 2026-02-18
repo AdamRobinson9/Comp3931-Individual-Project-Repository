@@ -1,0 +1,266 @@
+import random
+import networkx as nx
+import matplotlib.pyplot as plt
+from collections import deque
+plt.ion()
+
+class Flag:
+    """Flag object assigned to one evader, tracking ownership + location."""
+    def __init__(self, carrier):
+        self.carrier = carrier
+
+    def position(self):
+        return self.carrier.position
+
+    def transfer(self, new_carrier):
+        """Pass the flag from current evader to another adjacent one."""
+        self.carrier.has_flag = False
+        new_carrier.has_flag = True
+        self.carrier = new_carrier
+
+class Agent:
+    """Base class for pursuers & evaders—they behave the same, role decides usage."""
+    def __init__(self, start_node, is_pursuer=False):
+        self.position = start_node
+        self.is_pursuer = is_pursuer
+        self.has_flag = False   # Only true for one evader at a time
+
+    def move(self, state):
+        """Default behaviour = random valid neighbour move."""
+        neighbours = list(state.graph.neighbors(self.position))
+        if neighbours:
+            self.position = random.choice(neighbours)
+
+class GameState:
+    def __init__(self, graph, pursuers, evaders, flag_carrier, max_turns):
+        self.graph = graph
+        self.pursuers = pursuers
+        self.evaders = evaders
+
+        # Initialise flag object & owner
+        self.flag = Flag(flag_carrier)
+        flag_carrier.has_flag = True
+
+        self.max_turns = max_turns
+        self.current_turn = 0
+        self.current_team = "E"  # P = pursuers, E = evaders
+
+        self.game_over = False
+        self.winner = None
+
+    def agents_to_act(self):
+        """Return list of agents who act this phase."""
+        if self.current_team == "P":
+            return self.pursuers
+        else:
+            agents_to_act = [self.flag.carrier]
+            for player in self.evaders:
+                if player != self.flag.carrier:
+                    agents_to_act.append(player)
+            return agents_to_act
+
+    def reachable_teammates(self):
+        '''Allow flag to be passed through chains of adjacent evaders'''
+        carrier = self.flag.carrier
+        graph = self.graph
+
+        queue = deque([carrier])
+        visited = set([carrier])
+
+        reachable = [carrier]
+
+        while queue:
+            current = queue.popleft()
+
+            # Check every evader to see if they sit on a neighbouring node
+            for evader in self.evaders:
+                if evader not in visited:
+                    # graph adjacency check
+                    if evader.position in graph.neighbors(current.position):
+                        visited.add(evader)
+                        reachable.append(evader)
+                        queue.append(evader)
+
+        return reachable
+    
+    def check_flag_pass(self):
+        '''Get the intended pass from the user, check if it is legal and trasfer if it is'''
+        candidates = self.reachable_teammates()
+        candidates_print = list(enumerate([candidate.position for candidate in candidates]))
+
+        pass_to = None
+        while pass_to not in candidates:
+            try:
+                pass_to_ix = int(input("PASS TO: " + str(candidates_print) + " "))
+                pass_to = candidates[pass_to_ix]
+            except ValueError:
+                print("Enter a number")
+            except IndexError:
+                print("Enter a player in list")
+        self.flag.transfer(pass_to)
+
+    def check_capture(self):
+        """If any pursuer shares a node with the flag carrier → immediate game end."""
+        carrier_pos = self.flag.position()
+        for pursuer in self.pursuers:
+            if pursuer.position == carrier_pos:
+                self.game_over = True
+                self.winner = "Pursuers"
+                return
+
+    def check_win_conditions(self):
+        """Evaders win by survival timeout."""
+        if self.current_turn >= self.max_turns:
+            self.game_over = True
+            self.winner = "Evaders"
+
+    def change_turn(self):
+        if self.current_team == "P":
+            self.current_team = "E"
+            self.current_turn += 1
+        else:
+            self.current_team = "P"
+
+class CaptureTheFlag:
+    def __init__(self, graph, pursuers, evaders, flag_carrier, max_turns):
+        self.state = GameState(graph, pursuers, evaders, flag_carrier, max_turns)
+        self.pos = nx.kamada_kawai_layout(self.state.graph)
+
+    def draw_graph(self):
+        plt.clf()
+        graph = self.state.graph
+        pos = self.pos
+
+        nx.draw(graph, pos, with_labels=True)
+
+        # Flag carrier (highlighted yellow)
+        nx.draw_networkx_nodes(graph, pos, nodelist=[self.state.flag.position()], node_color="yellow", node_size=600)
+
+        # Pursuers - Red
+        pursuer_positions = [pursuer.position for pursuer in self.state.pursuers]
+        nx.draw_networkx_nodes(graph, pos, nodelist=pursuer_positions, node_color="red", alpha=0.5)
+
+        # Evaders - Blue
+        evader_positions = [evader.position for evader in self.state.evaders]
+        nx.draw_networkx_nodes(graph, pos, nodelist=evader_positions, node_color="blue", alpha=0.5)
+
+        plt.pause(0.1)
+
+    def choose_move(self, agent):
+        neighbours = list(self.state.graph.neighbors(agent.position))
+        neighbours.append(agent.position)
+        print(f"\n{'PURSUER' if agent.is_pursuer else 'EVADER'} at node {agent.position}")        
+        print("Valid moves:", neighbours)
+        new_position = None
+        while new_position not in neighbours:
+            try:
+                new_position = int(input("ENTER NEW POSITION"))
+            except ValueError:
+                print("Enter an integer")
+        return new_position
+    
+    def play(self):
+        while not self.state.game_over:
+            self.draw_graph()
+
+            # All agents of the active team perform moves this phase
+            agents = self.state.agents_to_act()
+            for agent in agents:
+                new_position = self.choose_move(agent)
+                agent.position = new_position
+
+            # Evaders may attempt a flag pass
+            if self.state.current_team == "E":
+                self.state.check_flag_pass()
+
+            # Check capture / win
+            self.state.check_capture()
+            self.state.check_win_conditions()
+
+            if not self.state.game_over:
+                self.state.change_turn()
+
+            input("[ENTER] next turn " + str(self.state.current_team))
+
+        print("\nGAME OVER — Winner:", self.state.winner, "- Turns Taken:", self.state.current_turn)
+
+def build_graph():
+    graph = nx.grid_2d_graph(8,8)
+
+    labels = {}
+    nodes = list(graph.nodes())
+    for i in range(len(nodes)):
+        labels[nodes[i]] = i
+    graph = nx.relabel_nodes(graph, labels)
+
+    return graph
+
+def choose_start_position(team, graph, evaders):
+    print("TEAM:", team)
+
+    while True:
+        try:
+            if team == "EVADERS" and len(evaders) == 0:
+                position = int(input("Enter the position of your flag carrier: "))
+            else:
+                position = int(input("Enter the position of your next player: "))
+
+            if position not in graph.nodes():
+                print("Invalid choice — that node does not exist on the graph.")
+            else:
+                return position
+
+        except ValueError:
+            print("Please enter a valid integer.")
+
+def draw_setup_graph(graph, pursuers, evaders):
+    plt.clf()
+    pos = nx.kamada_kawai_layout(graph)
+
+    nx.draw(graph, pos, with_labels=True)
+
+    # Pursuers - Red
+    pursuer_positions = [pursuer.position for pursuer in pursuers]
+    nx.draw_networkx_nodes(graph, pos, nodelist=pursuer_positions, node_color="red", alpha=0.5)
+
+    # Evaders - Blue
+    evader_positions = [evader.position for evader in evaders]
+    nx.draw_networkx_nodes(graph, pos, nodelist=evader_positions, node_color="blue", alpha=0.5)
+
+    plt.pause(0.1)
+
+def main():
+    graph = build_graph()
+
+    num_pursuers = 6
+    num_evaders = 4
+
+    pursuers = []
+    evaders = []
+
+    # Draw empty board
+    draw_setup_graph(graph, pursuers, evaders)
+
+    # Place pursuers
+    for i in range(num_pursuers):
+        start = choose_start_position("PURSUERS", graph, evaders)
+        pursuers.append(Agent(start_node=start, is_pursuer=True))
+        draw_setup_graph(graph, pursuers, evaders)
+
+    # Place evaders
+    for i in range(num_evaders):
+        start = choose_start_position("EVADERS", graph, evaders)
+        evaders.append(Agent(start_node=start, is_pursuer=False))
+        draw_setup_graph(graph, pursuers, evaders)
+
+    # Assign flag
+    flag_carrier = evaders[0]
+
+    # Create game instance
+    game = CaptureTheFlag(graph, pursuers, evaders, flag_carrier, max_turns=200)
+
+    game.play()
+
+
+if __name__ == "__main__":
+    main()
