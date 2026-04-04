@@ -1,0 +1,16 @@
+dist_to_flag,dist_to_teammate,flag_pressure,graph_position,action,q_value,visit_count
+carrier,near,low,peripheral,patrol,4.0834,146
+carrier,near,med,peripheral,patrol,3.6553,152
+carrier,near,high,peripheral,handoff,3.3954,4224
+far,near,high,central,support,3.0197,35
+far,near,high,peripheral,support,3.2427,76
+far,near,low,peripheral,link,4.2441,16
+mid,near,low,peripheral,link,4.0396,239
+mid,near,med,peripheral,support,3.9507,193
+mid,near,high,peripheral,support,2.9419,7061
+mid,near,high,central,link,3.3461,998
+mid,near,med,central,support,4.1281,2
+near,near,low,peripheral,support,4.0354,679
+near,near,med,peripheral,link,4.0432,235
+near,near,high,peripheral,support,3.3432,4796
+near,near,high,central,link,1.9791,847
